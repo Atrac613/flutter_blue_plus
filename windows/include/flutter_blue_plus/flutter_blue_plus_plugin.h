@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-FLUTTER_PLUGIN_EXPORT void FlutterBluePlusPluginCApiRegisterWithRegistrar(
+FLUTTER_PLUGIN_EXPORT void FlutterBluePlusPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar);
 
 #if defined(__cplusplus)
