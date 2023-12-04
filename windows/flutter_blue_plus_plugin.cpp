@@ -171,6 +171,8 @@ namespace {
 
         std::unique_ptr<flutter::EventSink<EncodableValue>> scan_result_sink_;
 
+        EncodableList targetServiceUuids;
+
         Radio bluetoothRadio{ nullptr };
 
         BluetoothLEAdvertisementWatcher bluetoothLEWatcher{ nullptr };
@@ -273,6 +275,13 @@ namespace {
             });
         }
         else if (method_name.compare("startScan") == 0) {
+            const auto *arguments = std::get_if<EncodableMap>(method_call.arguments());
+
+            auto withServices_it = arguments->find(EncodableValue("with_services"));
+            if (withServices_it != arguments->end()) {
+                targetServiceUuids = std::move(std::get<EncodableList>(withServices_it->second));
+            }
+
             if (!bluetoothLEWatcher) {
                 bluetoothLEWatcher = BluetoothLEAdvertisementWatcher();
                 bluetoothLEWatcherReceivedToken = bluetoothLEWatcher.Received({ this, &FlutterBluePlusPlugin::BluetoothLEWatcher_Received });
@@ -401,11 +410,27 @@ namespace {
         auto name = device ? device.Name() : args.Advertisement().LocalName();
         OutputDebugString((L"Received BluetoothAddress:" + winrt::to_hstring(args.BluetoothAddress())
             + L", Name:" + name + L", LocalName:" + args.Advertisement().LocalName() + L"\n").c_str());
-        if (method_channel_) {
+
+        bool hasService = false;
+        if (targetServiceUuids.size() > 0) {
+            IVector<winrt::guid> services = args.Advertisement().ServiceUuids();
+            for (winrt::guid serviceUuid : services) {
+                for (flutter::EncodableValue targetServiceUuid : targetServiceUuids) {
+                    if (to_uuidstr(serviceUuid) == std::get<std::string>(targetServiceUuid)) {
+                        hasService = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            hasService = true;
+        }
+
+        if (method_channel_ && hasService) {
             EncodableList advertisements;
             advertisements.push_back(EncodableMap{
                 {"remote_id", winrt::to_string(formatBluetoothAddress(args.BluetoothAddress()))},
-                {"adv_name", winrt::to_string(name)},
+                {"adv_name", EncodableValue(winrt::to_string(name))},
                 {"connectable", EncodableValue(args.IsConnectable())},
                 {"rssi", args.RawSignalStrengthInDBm()}
             });
