@@ -24,6 +24,8 @@
 #include <sstream>
 #include <algorithm>
 #include <iomanip>
+#include <iostream>
+#include <string>
 
 #define GUID_FORMAT "%08x-%04hx-%04hx-%02hhx%02hhx-%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx"
 #define GUID_ARG(guid) guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]
@@ -71,6 +73,16 @@ namespace {
         char chars[36 + 1];
         sprintf_s(chars, GUID_FORMAT, GUID_ARG(guid));
         return std::string{ chars };
+    }
+
+    std::string remove_string(std::string text, std::string targetText) {
+        text.erase(remove_if(text.begin(), text.end(),
+                                 [&targetText](const char &c) {
+                                     return targetText.find(c) != std::string::npos;
+                                 }),
+                   text.end());
+
+        return text;
     }
 
     int to_bmAdapterState(RadioState state) {
@@ -299,16 +311,44 @@ namespace {
         }
         else if (method_name.compare("connect") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("remote_id")]);
-            ConnectAsync(std::stoull(deviceId));
-            result->Success(nullptr);
+            std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            // "d9:da:10:8a:32:3a" to "d9da108a323a"
+            remoteId = remove_string(remoteId, ":");
+
+            ConnectAsync(std::stoull(remoteId.c_str(), 0, 16));
+            result->Success(EncodableValue(true));
         }
         else if (method_name.compare("disconnect") == 0) {
-            auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("remote_id")]);
-            CleanConnection(std::stoull(deviceId));
-            // TODO send `disconnected` message
-            result->Success(nullptr);
+            std::string remoteId = std::get<std::string>(*method_call.arguments());
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            // "d9:da:10:8a:32:3a" to "d9da108a323a"
+            remoteId = remove_string(remoteId, ":");
+
+            CleanConnection(std::stoull(remoteId.c_str(), 0, 16));
+            result->Success(EncodableValue(true));
+        }
+        else if (method_name.compare("readRssi") == 0) {
+            // No way currently to get connected RSSI on Windows
+            // https://stackoverflow.com/questions/64096245/how-to-get-rssi-of-a-connected-bluetoothledevice-in-uwp
+
+            std::string remoteId = std::get<std::string>(*method_call.arguments());
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            result->Success(EncodableValue(true));
+
+            if (method_channel_) {
+                method_channel_->InvokeMethod("OnReadRssi",
+                    std::make_unique<EncodableValue>(EncodableMap{
+                          {"remote_id", EncodableValue(remoteId)},
+                          {"rssi", EncodableValue(0)},
+                          {"success", EncodableValue(true)},
+                          {"error_string", EncodableValue("success")},
+                          {"error_code", EncodableValue(0)},
+                    }));
+            }
         }
         else if (method_name.compare("discoverServices") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
@@ -438,17 +478,6 @@ namespace {
             method_channel_->InvokeMethod("OnScanResponse", std::make_unique<EncodableValue>(EncodableMap{
                     {EncodableValue("advertisements"), advertisements},
             }));
-
-            OutputDebugString((L"Invoke BluetoothAddress:" + winrt::to_hstring(args.BluetoothAddress())
-                               + L", Name:" + name + L", LocalName:" + args.Advertisement().LocalName() + L"\n").c_str());
-            /*
-             EncodableMap{
-              {"name", winrt::to_string(name)},
-              {"deviceId", std::to_string(args.BluetoothAddress())},
-              {"manufacturerDataHead", parseManufacturerDataHead(args.Advertisement())},
-              {"rssi", args.RawSignalStrengthInDBm()},
-                }
-             */
         }
     }
 
@@ -485,10 +514,15 @@ namespace {
         auto servicesResult = co_await device.GetGattServicesAsync();
         if (servicesResult.Status() != GattCommunicationStatus::Success) {
             OutputDebugString((L"GetGattServicesAsync error: " + winrt::to_hstring((int32_t)servicesResult.Status()) + L"\n").c_str());
-            message_connector_->Send(EncodableMap{
-              {"deviceId", std::to_string(bluetoothAddress)},
-              {"ConnectionState", "disconnected"},
-                });
+            if (method_channel_) {
+                method_channel_->InvokeMethod("OnConnectionStateChanged",
+                    std::make_unique<EncodableValue>(EncodableMap{
+                          {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                          {"connection_state", EncodableValue(0)},
+                          {"disconnect_reason_code", EncodableValue(347972)}, // just a random value, could be anything.
+                          {"disconnect_reason_string", EncodableValue("GetGattServicesAsync error")}
+                    }));
+            }
             co_return;
         }
         auto connnectionStatusChangedToken = device.ConnectionStatusChanged({ this, &FlutterBluePlusPlugin::BluetoothLEDevice_ConnectionStatusChanged });
@@ -496,20 +530,31 @@ namespace {
         auto pair = std::make_pair(bluetoothAddress, std::move(deviceAgent));
         connectedDevices.insert(std::move(pair));
 
-        message_connector_->Send(EncodableMap{
-          {"deviceId", std::to_string(bluetoothAddress)},
-          {"ConnectionState", "connected"},
-            });
+        if (method_channel_) {
+            method_channel_->InvokeMethod("OnConnectionStateChanged",
+                std::make_unique<EncodableValue>(EncodableMap{
+                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                  {"connection_state", EncodableValue(1)},
+                  {"disconnect_reason_code", EncodableValue()},
+                  {"disconnect_reason_string", EncodableValue()}
+                }));
+        }
     }
 
     void FlutterBluePlusPlugin::BluetoothLEDevice_ConnectionStatusChanged(BluetoothLEDevice sender, IInspectable args) {
         OutputDebugString((L"ConnectionStatusChanged " + winrt::to_hstring((int32_t)sender.ConnectionStatus()) + L"\n").c_str());
         if (sender.ConnectionStatus() == BluetoothConnectionStatus::Disconnected) {
             CleanConnection(sender.BluetoothAddress());
-            message_connector_->Send(EncodableMap{
-              {"deviceId", std::to_string(sender.BluetoothAddress())},
-              {"ConnectionState", "disconnected"},
-                });
+
+            if (method_channel_) {
+                method_channel_->InvokeMethod("OnConnectionStateChanged",
+                    std::make_unique<EncodableValue>(EncodableMap{
+                          {"remote_id", winrt::to_string(formatBluetoothAddress(sender.BluetoothAddress()))},
+                          {"connection_state", EncodableValue(0)},
+                          {"disconnect_reason_code", EncodableValue()},
+                          {"disconnect_reason_string", EncodableValue()}
+                    }));
+            }
         }
     }
 
@@ -520,6 +565,16 @@ namespace {
             deviceAgent->device.ConnectionStatusChanged(deviceAgent->connnectionStatusChangedToken);
             for (auto& tokenPair : deviceAgent->valueChangedTokens) {
                 deviceAgent->gattCharacteristics.at(tokenPair.first).ValueChanged(tokenPair.second);
+            }
+
+            if (method_channel_) {
+                method_channel_->InvokeMethod("OnConnectionStateChanged",
+                    std::make_unique<EncodableValue>(EncodableMap{
+                          {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                          {"connection_state", EncodableValue(0)},
+                          {"disconnect_reason_code", EncodableValue()},
+                          {"disconnect_reason_string", EncodableValue()}
+                    }));
             }
         }
     }
