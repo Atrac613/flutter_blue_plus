@@ -69,6 +69,16 @@ namespace {
         return ss.str();
     }
 
+    std::vector<uint8_t> hex_to_bytes(std::string hex) {
+        std::vector<uint8_t> bytes;
+        for (unsigned int i = 0; i < hex.length(); i += 2) {
+            std::string bytestring = hex.substr(i, 2);
+            uint8_t byte = (uint8_t) strtol(bytestring.c_str(), nullptr, 16);
+            bytes.push_back(byte);
+        }
+        return bytes;
+    }
+
     std::string to_uuidstr(winrt::guid guid) {
         char chars[36 + 1];
         sprintf_s(chars, GUID_FORMAT, GUID_ARG(guid));
@@ -155,7 +165,7 @@ namespace {
         }
     };
 
-    class FlutterBluePlusPlugin : public flutter::Plugin, public flutter::StreamHandler<EncodableValue> {
+    class FlutterBluePlusPlugin : public flutter::Plugin {
     public:
         static void RegisterWithRegistrar(flutter::PluginRegistrarWindows* registrar);
 
@@ -171,17 +181,7 @@ namespace {
             const flutter::MethodCall<flutter::EncodableValue>& method_call,
             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
-        std::unique_ptr<flutter::StreamHandlerError<>> OnListenInternal(
-            const EncodableValue* arguments,
-            std::unique_ptr<flutter::EventSink<>>&& events) override;
-        std::unique_ptr<flutter::StreamHandlerError<>> OnCancelInternal(
-            const EncodableValue* arguments) override;
-
         std::unique_ptr<flutter::MethodChannel<EncodableValue>> method_channel_;
-
-        std::unique_ptr<flutter::BasicMessageChannel<EncodableValue>> message_connector_;
-
-        std::unique_ptr<flutter::EventSink<EncodableValue>> scan_result_sink_;
 
         EncodableList targetServiceUuids;
 
@@ -198,10 +198,9 @@ namespace {
         void BluetoothLEDevice_ConnectionStatusChanged(BluetoothLEDevice sender, IInspectable args);
         void CleanConnection(uint64_t bluetoothAddress);
         winrt::fire_and_forget DiscoverServicesAsync(BluetoothDeviceAgent& bluetoothDeviceAgent);
-        winrt::fire_and_forget SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::string bleInputProperty);
-        winrt::fire_and_forget RequestMtuAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, uint64_t expectedMtu);
+        winrt::fire_and_forget SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, int32_t bleInputProperty);
         winrt::fire_and_forget ReadValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic);
-        winrt::fire_and_forget WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, std::string bleOutputProperty);
+        winrt::fire_and_forget WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, int32_t bleOutputProperty);
         void FlutterBluePlusPlugin::GattCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args);
     };
 
@@ -212,14 +211,6 @@ namespace {
             std::make_unique<flutter::MethodChannel<EncodableValue>>(
                 registrar->messenger(), "flutter_blue_plus/methods",
                 &flutter::StandardMethodCodec::GetInstance());
-        auto event_scan_result =
-            std::make_unique<flutter::EventChannel<EncodableValue>>(
-                registrar->messenger(), "flutter_blue_plus/event.scanResult",
-                &flutter::StandardMethodCodec::GetInstance());
-        auto message_connector_ =
-            std::make_unique<flutter::BasicMessageChannel<EncodableValue>>(
-                registrar->messenger(), "flutter_blue_plus/message.connector",
-                &flutter::StandardMessageCodec::GetInstance());
 
         auto plugin = std::make_unique<FlutterBluePlusPlugin>();
 
@@ -229,22 +220,6 @@ namespace {
             });
 
         plugin->method_channel_ = std::move(method_channel_);
-
-        auto handler = std::make_unique<
-            flutter::StreamHandlerFunctions<>>(
-                [plugin_pointer = plugin.get()](
-                    const EncodableValue* arguments,
-                    std::unique_ptr<flutter::EventSink<>>&& events)
-                -> std::unique_ptr<flutter::StreamHandlerError<>> {
-                    return plugin_pointer->OnListen(arguments, std::move(events));
-                },
-                [plugin_pointer = plugin.get()](const EncodableValue* arguments)
-                -> std::unique_ptr<flutter::StreamHandlerError<>> {
-                    return plugin_pointer->OnCancel(arguments);
-                });
-        event_scan_result->SetStreamHandler(std::move(handler));
-
-        plugin->message_connector_ = std::move(message_connector_);
 
         registrar->AddPlugin(std::move(plugin));
     }
@@ -272,7 +247,6 @@ namespace {
             result->Success(0);
         }
         else if (method_name.compare("setLogLevel") == 0) {
-            //auto args = std::get<EncodableMap>(*method_call.arguments());
             result->Success(EncodableValue(true));
         }
         else if (method_name.compare("getAdapterState") == 0) {
@@ -299,7 +273,7 @@ namespace {
                 bluetoothLEWatcherReceivedToken = bluetoothLEWatcher.Received({ this, &FlutterBluePlusPlugin::BluetoothLEWatcher_Received });
             }
             bluetoothLEWatcher.Start();
-            result->Success(nullptr);
+            result->Success(EncodableValue(true));
         }
         else if (method_name.compare("stopScan") == 0) {
             if (bluetoothLEWatcher) {
@@ -307,7 +281,7 @@ namespace {
                 bluetoothLEWatcher.Received(bluetoothLEWatcherReceivedToken);
             }
             bluetoothLEWatcher = nullptr;
-            result->Success(nullptr);
+            result->Success(EncodableValue(true));
         }
         else if (method_name.compare("connect") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
@@ -351,73 +325,95 @@ namespace {
             }
         }
         else if (method_name.compare("discoverServices") == 0) {
-            auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("deviceId")]);
-            auto it = connectedDevices.find(std::stoull(deviceId));
+            std::string remoteId = std::get<std::string>(*method_call.arguments());
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            // "d9:da:10:8a:32:3a" to "d9da108a323a"
+            std::string remoteIdString = remove_string(remoteId, ":");
+            auto remoteIdInt = std::stoull(remoteIdString.c_str(), 0, 16);
+
+            auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown devicesId:" + deviceId);
+                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
                 return;
             }
             DiscoverServicesAsync(*it->second);
-            result->Success(nullptr);
+            result->Success(EncodableValue(true));
         }
-        else if (method_name.compare("setNotifiable") == 0) {
+        else if (method_name.compare("setNotifyValue") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("deviceId")]);
-            auto service = std::get<std::string>(args[EncodableValue("service")]);
-            auto characteristic = std::get<std::string>(args[EncodableValue("characteristic")]);
-            auto bleInputProperty = std::get<std::string>(args[EncodableValue("bleInputProperty")]);
-            auto it = connectedDevices.find(std::stoull(deviceId));
+            std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            auto characteristicUuid = std::get<std::string>(args[EncodableValue("characteristic_uuid")]);
+            auto serviceUuid = std::get<std::string>(args[EncodableValue("service_uuid")]);
+            //auto secondaryServiceUuid = std::get<std::string>(args[EncodableValue("secondary_service_uuid")]);
+            auto enable = std::get<bool>(args[EncodableValue("enable")]);
+
+            // "d9:da:10:8a:32:3a" to "d9da108a323a"
+            std::string remoteIdString = remove_string(remoteId, ":");
+            auto remoteIdInt = std::stoull(remoteIdString.c_str(), 0, 16);
+
+            auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown devicesId:" + deviceId);
+                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
                 return;
             }
 
-            SetNotifiableAsync(*it->second, service, characteristic, bleInputProperty);
-            result->Success(nullptr);
+            SetNotifiableAsync(*it->second, serviceUuid, characteristicUuid, enable ? 1 : 0);
+            result->Success(EncodableValue(true));
         }
         else if (method_name.compare("requestMtu") == 0) {
-            auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("deviceId")]);
-            auto expectedMtu = std::get<int32_t>(args[EncodableValue("expectedMtu")]);
-            auto it = connectedDevices.find(std::stoull(deviceId));
-            if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown devicesId:" + deviceId);
-                return;
-            }
-
-            RequestMtuAsync(*it->second, expectedMtu);
-            result->Success(nullptr);
+            result->Error("requestMtu", "Windows does not allow mtu requests to the peripheral");
         }
-        else if (method_name.compare("readValue") == 0) {
+        else if (method_name.compare("readCharacteristic") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("deviceId")]);
-            auto service = std::get<std::string>(args[EncodableValue("service")]);
-            auto characteristic = std::get<std::string>(args[EncodableValue("characteristic")]);
-            auto it = connectedDevices.find(std::stoull(deviceId));
+            std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            auto characteristicUuid = std::get<std::string>(args[EncodableValue("characteristic_uuid")]);
+            auto serviceUuid = std::get<std::string>(args[EncodableValue("service_uuid")]);
+            //auto secondaryServiceUuid = std::get<std::string>(args[EncodableValue("secondary_service_uuid")]);
+
+            // "d9:da:10:8a:32:3a" to "d9da108a323a"
+            std::string remoteIdString = remove_string(remoteId, ":");
+            auto remoteIdInt = std::stoull(remoteIdString.c_str(), 0, 16);
+
+            auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown devicesId:" + deviceId);
+                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
                 return;
             }
 
-            ReadValueAsync(*it->second, service, characteristic);
-            result->Success(nullptr);
+            ReadValueAsync(*it->second, serviceUuid, characteristicUuid);
+            result->Success(EncodableValue(true));
         }
-        else if (method_name.compare("writeValue") == 0) {
+        else if (method_name.compare("writeCharacteristic") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
-            auto deviceId = std::get<std::string>(args[EncodableValue("deviceId")]);
-            auto service = std::get<std::string>(args[EncodableValue("service")]);
-            auto characteristic = std::get<std::string>(args[EncodableValue("characteristic")]);
-            auto value = std::get<std::vector<uint8_t>>(args[EncodableValue("value")]);
-            auto bleOutputProperty = std::get<std::string>(args[EncodableValue("bleOutputProperty")]);
-            auto it = connectedDevices.find(std::stoull(deviceId));
+            std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
+            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+
+            auto characteristicUuid = std::get<std::string>(args[EncodableValue("characteristic_uuid")]);
+            auto serviceUuid = std::get<std::string>(args[EncodableValue("service_uuid")]);
+            //auto secondaryServiceUuid = std::get<std::string>(args[EncodableValue("secondary_service_uuid")]);
+            auto writeType = std::get<int32_t>(args[EncodableValue("write_type")]);
+            //auto allowLongWrite = std::get<int32_t>(args[EncodableValue("allow_long_write")]);
+            auto value = std::get<std::string>(args[EncodableValue("value")]);
+
+            auto hexValue = hex_to_bytes(value);
+
+            // "d9:da:10:8a:32:3a" to "d9da108a323a"
+            std::string remoteIdString = remove_string(remoteId, ":");
+            auto remoteIdInt = std::stoull(remoteIdString.c_str(), 0, 16);
+
+            auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown devicesId:" + deviceId);
+                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
                 return;
             }
 
-            WriteValueAsync(*it->second, service, characteristic, value, bleOutputProperty);
-            result->Success(nullptr);
+            WriteValueAsync(*it->second, serviceUuid, characteristicUuid, hexValue, writeType);
+            result->Success(EncodableValue(true));
         }
         else {
             result->NotImplemented();
@@ -479,34 +475,6 @@ namespace {
                     {EncodableValue("advertisements"), advertisements},
             }));
         }
-    }
-
-    std::unique_ptr<flutter::StreamHandlerError<EncodableValue>> FlutterBluePlusPlugin::OnListenInternal(
-        const EncodableValue* arguments, std::unique_ptr<flutter::EventSink<EncodableValue>>&& events)
-    {
-        if (arguments == nullptr) {
-            return nullptr;
-        }
-        auto args = std::get<EncodableMap>(*arguments);
-        auto name = std::get<std::string>(args[EncodableValue("name")]);
-        if (name.compare("scanResult") == 0) {
-            scan_result_sink_ = std::move(events);
-        }
-        return nullptr;
-    }
-
-    std::unique_ptr<flutter::StreamHandlerError<EncodableValue>> FlutterBluePlusPlugin::OnCancelInternal(
-        const EncodableValue* arguments)
-    {
-        if (arguments == nullptr) {
-            return nullptr;
-        }
-        auto args = std::get<EncodableMap>(*arguments);
-        auto name = std::get<std::string>(args[EncodableValue("name")]);
-        if (name.compare("scanResult") == 0) {
-            scan_result_sink_ = nullptr;
-        }
-        return nullptr;
     }
 
     winrt::fire_and_forget FlutterBluePlusPlugin::ConnectAsync(uint64_t bluetoothAddress) {
@@ -582,51 +550,125 @@ namespace {
     winrt::fire_and_forget FlutterBluePlusPlugin::DiscoverServicesAsync(BluetoothDeviceAgent& bluetoothDeviceAgent) {
         auto serviceResult = co_await bluetoothDeviceAgent.device.GetGattServicesAsync();
         if (serviceResult.Status() != GattCommunicationStatus::Success) {
-            message_connector_->Send(
-                EncodableMap{
-                  {"deviceId", std::to_string(bluetoothDeviceAgent.device.BluetoothAddress())},
-                  {"ServiceState", "discovered"}
-                }
-            );
+            if (method_channel_) {
+                EncodableList services;
+                method_channel_->InvokeMethod("OnDiscoveredServices",
+                    std::make_unique<EncodableValue>(EncodableMap{
+                          {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                          {"services", EncodableValue(services)},
+                          {"success", EncodableValue(0)},
+                          {"error_string", EncodableValue("Invalid status")},
+                          {"error_code", EncodableValue(0)}
+                    }));
+            }
             co_return;
         }
 
+        auto bluetoothAddress = bluetoothDeviceAgent.device.BluetoothAddress();
+        EncodableList services;
+
         for (auto s : serviceResult.Services()) {
-            auto characteristicResult = co_await s.GetCharacteristicsAsync();
-            auto msg = EncodableMap{
-              {"deviceId", std::to_string(bluetoothDeviceAgent.device.BluetoothAddress())},
-              {"ServiceState", "discovered"},
-              {"service", to_uuidstr(s.Uuid())}
+            EncodableList includedServices;
+            auto includedServiceResult = co_await s.GetIncludedServicesAsync();
+            if (includedServiceResult.Status() != GattCommunicationStatus::Success) {
+                //includedServices = co_await bmBluetoothService(includedServiceResult, bluetoothAddress);
+            }
+
+            auto service = EncodableMap{
+                    {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                    {"service_uuid", to_uuidstr(s.Uuid())},
+                    {"is_primary", EncodableValue(true)},
+                    {"included_services", EncodableValue(includedServices)}
             };
+
+            auto characteristicResult = co_await s.GetCharacteristicsAsync();
             if (characteristicResult.Status() == GattCommunicationStatus::Success) {
                 EncodableList characteristics;
                 for (auto c : characteristicResult.Characteristics()) {
-                    characteristics.push_back(to_uuidstr(c.Uuid()));
+                    auto descriptorsResult = co_await c.GetDescriptorsAsync();
+                    EncodableList descriptors;
+                    for (auto d : descriptorsResult.Descriptors()) {
+                        descriptors.push_back(EncodableMap{
+                                {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                                {"service_uuid", EncodableValue(to_uuidstr(s.Uuid()))},
+                                {"secondary_service_uuid", EncodableValue()},
+                                {"characteristic_uuid", EncodableValue(to_uuidstr(c.Uuid()))},
+                                {"descriptor_uuid", EncodableValue(to_uuidstr(d.Uuid()))},
+                        });
+                    }
+
+                    auto props = (unsigned int)c.CharacteristicProperties();
+                    auto propsMap = EncodableMap{
+                            {"broadcast", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Broadcast) != 0)},
+                            {"read", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Read) != 0)},
+                            {"write_without_response", EncodableValue((props & (unsigned int)GattCharacteristicProperties::WriteWithoutResponse) != 0)},
+                            {"write", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Write) != 0)},
+                            {"notify", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Notify) != 0)},
+                            {"indicate", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Indicate) != 0)},
+                            {"authenticated_signed_writes", EncodableValue((props & (unsigned int)GattCharacteristicProperties::AuthenticatedSignedWrites) != 0)},
+                            {"extended_properties", EncodableValue((props & (unsigned int)GattCharacteristicProperties::ExtendedProperties) != 0)},
+                            {"notify_encryption_required", EncodableValue(false)},
+                            {"indicate_encryption_required", EncodableValue(false)}
+                    };
+
+                    characteristics.push_back(EncodableMap{
+                            {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                            {"service_uuid", to_uuidstr(c.Service().Uuid())},
+                            {"secondary_service_uuid", EncodableValue()},
+                            {"characteristic_uuid", to_uuidstr(c.Uuid())},
+                            {"descriptors", EncodableValue(descriptors)},
+                            {"properties", EncodableValue(propsMap)}
+                    });
                 }
-                msg.insert({ "characteristics", characteristics });
+                service.insert({ "characteristics", characteristics });
             }
-            message_connector_->Send(msg);
+
+            services.push_back(service);
+        }
+
+        if (method_channel_) {
+            method_channel_->InvokeMethod("OnDiscoveredServices",
+            std::make_unique<EncodableValue>(EncodableMap{
+                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                  {"services", EncodableValue(services)},
+                  {"success", EncodableValue(1)},
+                  {"error_string", EncodableValue("success")},
+                  {"error_code", EncodableValue(0)}
+            }));
         }
     }
 
-    winrt::fire_and_forget FlutterBluePlusPlugin::RequestMtuAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, uint64_t expectedMtu) {
-        OutputDebugString(L"RequestMtuAsync expectedMtu");
-        auto gattSession = co_await GattSession::FromDeviceIdAsync(bluetoothDeviceAgent.device.BluetoothDeviceId());
-        message_connector_->Send(EncodableMap{
-          {"mtuConfig", (int64_t)gattSession.MaxPduSize()},
-            });
-    }
+    winrt::fire_and_forget FlutterBluePlusPlugin::SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, int32_t bleInputProperty) {
+        OutputDebugString((L"SetNotifiableAsync " + winrt::to_hstring((int32_t) bleInputProperty) + L"\n").c_str());
 
-    winrt::fire_and_forget FlutterBluePlusPlugin::SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::string bleInputProperty) {
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
-        auto descriptorValue = bleInputProperty == "notification" ? GattClientCharacteristicConfigurationDescriptorValue::Notify
-            : bleInputProperty == "indication" ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
+        auto descriptorValue = bleInputProperty == 1 ? GattClientCharacteristicConfigurationDescriptorValue::Notify
+            : bleInputProperty == 2 ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
             : GattClientCharacteristicConfigurationDescriptorValue::None;
-        auto writeDescriptorStatus = co_await gattCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(descriptorValue);
-        if (writeDescriptorStatus != GattCommunicationStatus::Success)
-            OutputDebugString((L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t)writeDescriptorStatus) + L"\n").c_str());
 
-        if (bleInputProperty != "disabled") {
+        auto writeDescriptorStatus = co_await gattCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(descriptorValue);
+        OutputDebugString((L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t) writeDescriptorStatus) + L"\n").c_str());
+
+        if (method_channel_) {
+            std::vector<uint8_t> bytes;
+            bytes.push_back((uint8_t) descriptorValue);
+
+            auto success = writeDescriptorStatus == GattCommunicationStatus::Success;
+            method_channel_->InvokeMethod("OnDescriptorWritten",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                      {"service_uuid", EncodableValue(service)},
+                      {"secondary_service_uuid", EncodableValue()},
+                      {"characteristic_uuid", EncodableValue(characteristic)},
+                      {"descriptor_uuid", EncodableValue("2902")},
+                      {"value", EncodableValue(to_hexstring(bytes))},
+                      {"success", EncodableValue(success ? 1 : 0)},
+                      {"error_string", EncodableValue(success ? "success" : "invalid status")},
+                      {"error_code", EncodableValue(success ? 0 : (int32_t) writeDescriptorStatus)}
+                }));
+        }
+
+        if (bleInputProperty != 0) {
             bluetoothDeviceAgent.valueChangedTokens[characteristic] = gattCharacteristic.ValueChanged({ this, &FlutterBluePlusPlugin::GattCharacteristic_ValueChanged });
         }
         else {
@@ -638,34 +680,64 @@ namespace {
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
         auto readValueResult = co_await gattCharacteristic.ReadValueAsync();
         auto bytes = to_bytevc(readValueResult.Value());
+
         OutputDebugString((L"ReadValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
-        message_connector_->Send(EncodableMap{
-          {"deviceId", std::to_string(gattCharacteristic.Service().Device().BluetoothAddress())},
-          {"characteristicValue", EncodableMap{
-            {"characteristic", characteristic},
-            {"value", bytes},
-          }},
-            });
+
+        if (method_channel_) {
+            method_channel_->InvokeMethod("OnCharacteristicReceived",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                      {"service_uuid", EncodableValue(service)},
+                      {"secondary_service_uuid", EncodableValue()},
+                      {"characteristic_uuid", EncodableValue(characteristic)},
+                      {"value", EncodableValue(to_hexstring(bytes))},
+                      {"success", EncodableValue(1)},
+                      {"error_string", EncodableValue("success")},
+                      {"error_code", EncodableValue(0)}
+                }));
+        }
     }
 
-    winrt::fire_and_forget FlutterBluePlusPlugin::WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, std::string bleOutputProperty) {
+    winrt::fire_and_forget FlutterBluePlusPlugin::WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, int32_t bleOutputProperty) {
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
-        auto writeOption = bleOutputProperty.compare("withoutResponse") == 0 ? GattWriteOption::WriteWithoutResponse : GattWriteOption::WriteWithResponse;
+        auto writeOption = bleOutputProperty == 0 ? GattWriteOption::WriteWithResponse : GattWriteOption::WriteWithoutResponse;
         auto writeValueStatus = co_await gattCharacteristic.WriteValueAsync(from_bytevc(value), writeOption);
         OutputDebugString((L"WriteValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(value)) + L", " + winrt::to_hstring((int32_t)writeValueStatus) + L"\n").c_str());
+
+        if (method_channel_) {
+            method_channel_->InvokeMethod("OnCharacteristicWritten",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                      {"service_uuid", EncodableValue(service)},
+                      {"secondary_service_uuid", EncodableValue()},
+                      {"characteristic_uuid", EncodableValue(characteristic)},
+                      {"value", EncodableValue(to_hexstring(value))},
+                      {"success", EncodableValue((int32_t)writeValueStatus == 0 ? 1 : 0)},
+                      {"error_string", EncodableValue((int32_t)writeValueStatus == 0 ? "success" : "Invalid Status")},
+                      {"error_code", EncodableValue((int32_t)writeValueStatus)}
+                }));
+        }
     }
 
     void FlutterBluePlusPlugin::GattCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args) {
-        auto uuid = to_uuidstr(sender.Uuid());
+        auto characteristic_uuid = to_uuidstr(sender.Uuid());
+        auto service_uuid = to_uuidstr(sender.Service().Uuid());
         auto bytes = to_bytevc(args.CharacteristicValue());
-        OutputDebugString((L"GattCharacteristic_ValueChanged " + winrt::to_hstring(uuid) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
-        message_connector_->Send(EncodableMap{
-          {"deviceId", std::to_string(sender.Service().Device().BluetoothAddress())},
-          {"characteristicValue", EncodableMap{
-            {"characteristic", uuid},
-            {"value", bytes},
-          }},
-            });
+        OutputDebugString((L"GattCharacteristic_ValueChanged " + winrt::to_hstring(characteristic_uuid) + L", " + winrt::to_hstring(service_uuid) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
+
+        if (method_channel_) {
+            method_channel_->InvokeMethod("OnCharacteristicReceived",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(sender.Service().Device().BluetoothAddress()))},
+                      {"service_uuid", EncodableValue(service_uuid)},
+                      {"secondary_service_uuid", EncodableValue()},
+                      {"characteristic_uuid", EncodableValue(characteristic_uuid)},
+                      {"value", EncodableValue(to_hexstring(bytes))},
+                      {"success", EncodableValue(1)},
+                      {"error_string", EncodableValue("success")},
+                      {"error_code", EncodableValue(0)}
+                }));
+        }
     }
 }  // namespace flutter_blue_plus
 
