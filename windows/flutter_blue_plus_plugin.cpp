@@ -108,6 +108,11 @@ namespace {
         }
     }
 
+    bool isAdapterOn(Radio radio) {
+        auto state = radio ? radio.State() : RadioState::Unknown;
+        return state == RadioState::On;
+    }
+
     std::wstring formatBluetoothAddress(unsigned long long BluetoothAddress)
     {
         std::wostringstream ret;
@@ -262,6 +267,12 @@ namespace {
         }
         else if (method_name.compare("startScan") == 0) {
             const auto *arguments = std::get_if<EncodableMap>(method_call.arguments());
+
+            // check adapter state
+            if (isAdapterOn(bluetoothRadio) == false) {
+                result->Error("startScan", "bluetooth must be turned on.");
+                return;
+            }
 
             auto withServices_it = arguments->find(EncodableValue("with_services"));
             if (withServices_it != arguments->end()) {
