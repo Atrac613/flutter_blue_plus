@@ -492,7 +492,8 @@ namespace {
             EncodableList advertisements;
             advertisements.push_back(EncodableMap{
                 {"remote_id", winrt::to_string(formatBluetoothAddress(args.BluetoothAddress()))},
-                {"adv_name", EncodableValue(winrt::to_string(name))},
+                {"platform_name", EncodableValue(winrt::to_string(name))},
+                {"adv_name", EncodableValue(winrt::to_string(args.Advertisement().LocalName()))},
                 {"connectable", EncodableValue(args.IsConnectable())},
                 {"rssi", args.RawSignalStrengthInDBm()}
             });
