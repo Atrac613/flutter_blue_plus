@@ -113,6 +113,21 @@ namespace {
         return state == RadioState::On;
     }
 
+    std::string getGattCommunicationStatusMessage(GattCommunicationStatus status) {
+        switch (status) {
+            case GattCommunicationStatus::AccessDenied:
+                return "Access is denied.";
+            case GattCommunicationStatus::ProtocolError:
+                return "There was a GATT communication protocol error.";
+            case GattCommunicationStatus::Unreachable:
+                return "No communication can be performed with the device, at this time.";
+            case GattCommunicationStatus::Success:
+                return "The operation completed successfully.";
+            default:
+                return "Unknown status.";
+        }
+    }
+
     std::wstring formatBluetoothAddress(unsigned long long BluetoothAddress)
     {
         std::wostringstream ret;
@@ -492,14 +507,15 @@ namespace {
         auto device = co_await BluetoothLEDevice::FromBluetoothAddressAsync(bluetoothAddress);
         auto servicesResult = co_await device.GetGattServicesAsync();
         if (servicesResult.Status() != GattCommunicationStatus::Success) {
-            OutputDebugString((L"GetGattServicesAsync error: " + winrt::to_hstring((int32_t)servicesResult.Status()) + L"\n").c_str());
+            std::string errorMessage = getGattCommunicationStatusMessage(servicesResult.Status());
+            OutputDebugString((L"GetGattServicesAsync error: " + winrt::to_hstring(errorMessage) + L"\n").c_str());
             if (method_channel_) {
                 method_channel_->InvokeMethod("OnConnectionStateChanged",
                     std::make_unique<EncodableValue>(EncodableMap{
                           {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
                           {"connection_state", EncodableValue(0)},
-                          {"disconnect_reason_code", EncodableValue(347972)}, // just a random value, could be anything.
-                          {"disconnect_reason_string", EncodableValue("GetGattServicesAsync error")}
+                          {"disconnect_reason_code", EncodableValue((int32_t)servicesResult.Status())},
+                          {"disconnect_reason_string", EncodableValue(errorMessage)}
                     }));
             }
             co_return;
