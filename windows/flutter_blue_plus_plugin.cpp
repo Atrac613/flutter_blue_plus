@@ -296,6 +296,7 @@ namespace {
 
             if (!bluetoothLEWatcher) {
                 bluetoothLEWatcher = BluetoothLEAdvertisementWatcher();
+                bluetoothLEWatcher.ScanningMode(BluetoothLEScanningMode::Active);
                 bluetoothLEWatcherReceivedToken = bluetoothLEWatcher.Received({ this, &FlutterBluePlusPlugin::BluetoothLEWatcher_Received });
             }
             bluetoothLEWatcher.Start();
