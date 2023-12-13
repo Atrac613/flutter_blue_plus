@@ -162,9 +162,16 @@ namespace {
                 if (serviceResult.Status() != GattCommunicationStatus::Success)
                     co_return nullptr;
 
-                for (auto s : serviceResult.Services())
-                    if (to_uuidstr(s.Uuid()) == service)
+                for (auto s : serviceResult.Services()) {
+                    std::string uuid = to_uuidstr(s.Uuid());
+                    if (service.size() == 4) {
+                        uuid = uuid.substr(4, 4);
+                    }
+
+                    if (uuid == service) {
                         gattServices.insert(std::make_pair(service, s));
+                    }
+                }
             }
             co_return gattServices.at(service);
         }
@@ -177,9 +184,16 @@ namespace {
                 if (characteristicResult.Status() != GattCommunicationStatus::Success)
                     co_return nullptr;
 
-                for (auto c : characteristicResult.Characteristics())
-                    if (to_uuidstr(c.Uuid()) == characteristic)
+                for (auto c : characteristicResult.Characteristics()) {
+                    std::string uuid = to_uuidstr(c.Uuid());
+                    if (characteristic.size() == 4) {
+                        uuid = uuid.substr(4, 4);
+                    }
+
+                    if (uuid == characteristic) {
                         gattCharacteristics.insert(std::make_pair(characteristic, c));
+                    }
+                }
             }
             co_return gattCharacteristics.at(characteristic);
         }
