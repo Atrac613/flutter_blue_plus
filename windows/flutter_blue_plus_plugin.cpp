@@ -766,7 +766,7 @@ namespace {
         auto characteristic_uuid = to_uuidstr(sender.Uuid());
         auto service_uuid = to_uuidstr(sender.Service().Uuid());
         auto bytes = to_bytevc(args.CharacteristicValue());
-        OutputDebugString((L"GattCharacteristic_ValueChanged " + winrt::to_hstring(characteristic_uuid) + L", " + winrt::to_hstring(service_uuid) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
+        //OutputDebugString((L"GattCharacteristic_ValueChanged " + winrt::to_hstring(characteristic_uuid) + L", " + winrt::to_hstring(service_uuid) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
 
         if (method_channel_) {
             method_channel_->InvokeMethod("OnCharacteristicReceived",
