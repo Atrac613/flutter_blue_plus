@@ -503,14 +503,74 @@ namespace {
             hasService = true;
         }
 
+        EncodableMap manufacturerData;
+        for (auto const& data : args.Advertisement().ManufacturerData()) {
+            auto manufacturerId = data.CompanyId();
+            auto bytes = to_bytevc(data.Data());
+
+            manufacturerData[EncodableValue(manufacturerId)] = EncodableValue(to_hexstring(bytes));
+        }
+
+        EncodableMap serviceData;
+        for (auto const& data : args.Advertisement().GetSectionsByType(0x16)) {
+            std::vector<uint8_t> bytes = to_bytevc(data.Data());
+
+            std::vector<uint8_t> uuidBytes;
+            std::vector<uint8_t> payloadBytes;
+
+            auto dataSize = data.Data().Length();
+            if (dataSize > 0) {
+                size_t uuidSize = 0;
+
+                if (dataSize >= 128) {
+                    uuidSize = 16;
+                } else if (dataSize >= 32) {
+                    uuidSize = 4;
+                } else {
+                    uuidSize = 2;
+                }
+
+                uuidBytes.resize(uuidSize);
+                for (size_t i=0; i<uuidSize; i++) {
+                    uuidBytes[i] = bytes[i];
+                }
+
+                payloadBytes.resize(dataSize - uuidSize);
+                for (size_t i=0; i<dataSize - uuidSize; i++) {
+                    payloadBytes[i] = bytes[i + uuidSize];
+                }
+            }
+
+            // Convert Little Endian to Big Endian
+            std::reverse(uuidBytes.begin(), uuidBytes.end());
+            std::reverse(payloadBytes.begin(), payloadBytes.end());
+
+            serviceData[EncodableValue(to_hexstring(uuidBytes))] = EncodableValue(to_hexstring(payloadBytes));
+        }
+
+        EncodableValue txPower;
+        if (args.TransmitPowerLevelInDBm()) {
+            txPower = EncodableValue((short)args.TransmitPowerLevelInDBm().Value());
+        }
+
+        EncodableList serviceUuidList;
+        IVector<winrt::guid> serviceUuids = args.Advertisement().ServiceUuids();
+        for (winrt::guid uuid : serviceUuids) {
+            serviceUuidList.push_back(EncodableValue(to_uuidstr(uuid)));
+        }
+
         if (method_channel_ && hasService) {
             EncodableList advertisements;
             advertisements.push_back(EncodableMap{
-                {"remote_id", winrt::to_string(formatBluetoothAddress(args.BluetoothAddress()))},
+                {"remote_id", EncodableValue(winrt::to_string(formatBluetoothAddress(args.BluetoothAddress())))},
                 {"platform_name", EncodableValue(winrt::to_string(name))},
                 {"adv_name", EncodableValue(winrt::to_string(args.Advertisement().LocalName()))},
                 {"connectable", EncodableValue(args.IsConnectable())},
-                {"rssi", args.RawSignalStrengthInDBm()}
+                {"tx_power_level", txPower},
+                {"manufacturer_data", EncodableValue(manufacturerData)},
+                {"service_uuids", EncodableValue(serviceUuidList)},
+                {"service_data", EncodableValue(serviceData)},
+                {"rssi", EncodableValue(args.RawSignalStrengthInDBm())}
             });
 
             method_channel_->InvokeMethod("OnScanResponse", std::make_unique<EncodableValue>(EncodableMap{
