@@ -388,7 +388,7 @@ namespace {
 
             auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
+                result->Error("discoverServices", "Device is disconnected. remoteId:" + remoteId);
                 return;
             }
             DiscoverServicesAsync(*it->second);
@@ -410,7 +410,7 @@ namespace {
 
             auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
+                result->Error("setNotifyValue", "Device is disconnected. remoteId:" + remoteId);
                 return;
             }
 
@@ -435,7 +435,7 @@ namespace {
 
             auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
+                result->Error("readCharacteristic", "Device is disconnected. remoteId: " + remoteId);
                 return;
             }
 
@@ -462,7 +462,7 @@ namespace {
 
             auto it = connectedDevices.find(remoteIdInt);
             if (it == connectedDevices.end()) {
-                result->Error("IllegalArgument", "Unknown remoteId:" + remoteId);
+                result->Error("writeCharacteristic", "Device is disconnected. remoteId:" + remoteId);
                 return;
             }
 
@@ -747,41 +747,86 @@ namespace {
     winrt::fire_and_forget FlutterBluePlusPlugin::SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, int32_t bleInputProperty) {
         FBPLog(LDEBUG, L"SetNotifiableAsync " + winrt::to_hstring((int32_t) bleInputProperty));
 
-        auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
-        auto descriptorValue = bleInputProperty == 1 ? GattClientCharacteristicConfigurationDescriptorValue::Notify
-            : bleInputProperty == 2 ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
-            : GattClientCharacteristicConfigurationDescriptorValue::None;
+        try {
+            auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
 
-        auto writeDescriptorStatus = co_await gattCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(descriptorValue);
-        FBPLog(LDEBUG, L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t) writeDescriptorStatus));
+            // check notify-able
+            auto props = (unsigned int)gattCharacteristic.CharacteristicProperties();
+            if ((props & (unsigned int)GattCharacteristicProperties::Notify) == 0 &&
+                (props & (unsigned int)GattCharacteristicProperties::Indicate) == 0) {
+                std::vector<uint8_t> bytes;
+                method_channel_->InvokeMethod("OnDescriptorWritten",
+                    std::make_unique<EncodableValue>(EncodableMap{
+                        {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                        {"service_uuid", EncodableValue(service)},
+                        {"secondary_service_uuid", EncodableValue()},
+                        {"characteristic_uuid", EncodableValue(characteristic)},
+                        {"descriptor_uuid", EncodableValue("2902")},
+                        {"value", EncodableValue(to_hexstring(bytes))},
+                        {"success", EncodableValue(0)},
+                        {"error_string", EncodableValue("neither NOTIFY nor INDICATE properties are supported by this BLE characteristic")},
+                        {"error_code", EncodableValue(587024)}
+                    }));
+                co_return;
+            }
 
-        std::vector<uint8_t> bytes;
-        bytes.push_back((uint8_t) descriptorValue);
+            auto descriptorValue = bleInputProperty == 1 ? GattClientCharacteristicConfigurationDescriptorValue::Notify
+                                                         : bleInputProperty == 2 ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
+                                                                                 : GattClientCharacteristicConfigurationDescriptorValue::None;
 
-        auto success = writeDescriptorStatus == GattCommunicationStatus::Success;
-        method_channel_->InvokeMethod("OnDescriptorWritten",
-            std::make_unique<EncodableValue>(EncodableMap{
-                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
-                  {"service_uuid", EncodableValue(service)},
-                  {"secondary_service_uuid", EncodableValue()},
-                  {"characteristic_uuid", EncodableValue(characteristic)},
-                  {"descriptor_uuid", EncodableValue("2902")},
-                  {"value", EncodableValue(to_hexstring(bytes))},
-                  {"success", EncodableValue(success ? 1 : 0)},
-                  {"error_string", EncodableValue(success ? "success" : "invalid status")},
-                  {"error_code", EncodableValue(success ? 0 : (int32_t) writeDescriptorStatus)}
-            }));
+            auto writeDescriptorStatus = co_await gattCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(descriptorValue);
+            FBPLog(LDEBUG, L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t) writeDescriptorStatus));
 
-        if (bleInputProperty != 0) {
-            bluetoothDeviceAgent.valueChangedTokens[characteristic] = gattCharacteristic.ValueChanged({ this, &FlutterBluePlusPlugin::GattCharacteristic_ValueChanged });
-        }
-        else {
-            gattCharacteristic.ValueChanged(std::exchange(bluetoothDeviceAgent.valueChangedTokens[characteristic], {}));
+            std::vector<uint8_t> bytes;
+            bytes.push_back((uint8_t) descriptorValue);
+
+            auto success = writeDescriptorStatus == GattCommunicationStatus::Success;
+            method_channel_->InvokeMethod("OnDescriptorWritten",
+                std::make_unique<EncodableValue>(EncodableMap{
+                    {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                    {"service_uuid", EncodableValue(service)},
+                    {"secondary_service_uuid", EncodableValue()},
+                    {"characteristic_uuid", EncodableValue(characteristic)},
+                    {"descriptor_uuid", EncodableValue("2902")},
+                    {"value", EncodableValue(to_hexstring(bytes))},
+                    {"success", EncodableValue(success ? 1 : 0)},
+                    {"error_string", EncodableValue(success ? "success" : "invalid status")},
+                    {"error_code", EncodableValue(success ? 0 : (int32_t) writeDescriptorStatus)}
+                }));
+
+            if (bleInputProperty != 0) {
+                bluetoothDeviceAgent.valueChangedTokens[characteristic] = gattCharacteristic.ValueChanged({ this, &FlutterBluePlusPlugin::GattCharacteristic_ValueChanged });
+            }
+            else {
+                gattCharacteristic.ValueChanged(std::exchange(bluetoothDeviceAgent.valueChangedTokens[characteristic], {}));
+            }
+        } catch(...) {
+            FBPLog(LERROR, L"Unexpected error in SetNotifiableAsync");
+            co_return;
         }
     }
 
     winrt::fire_and_forget FlutterBluePlusPlugin::ReadValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic) {
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
+
+        // check readable
+        auto props = (unsigned int)gattCharacteristic.CharacteristicProperties();
+        if ((props & (unsigned int)GattCharacteristicProperties::Read) == 0) {
+            std::vector<uint8_t> bytes;
+            method_channel_->InvokeMethod("OnCharacteristicReceived",
+                std::make_unique<EncodableValue>(EncodableMap{
+                    {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                    {"service_uuid", EncodableValue(service)},
+                    {"secondary_service_uuid", EncodableValue()},
+                    {"characteristic_uuid", EncodableValue(characteristic)},
+                    {"value", EncodableValue(to_hexstring(bytes))},
+                    {"success", EncodableValue(0)},
+                    {"error_string", EncodableValue("The READ property is not supported by this BLE characteristic")},
+                    {"error_code", EncodableValue(572824)}
+                }));
+            co_return;
+        }
+
         auto readValueResult = co_await gattCharacteristic.ReadValueAsync();
         auto bytes = to_bytevc(readValueResult.Value());
 
@@ -803,6 +848,36 @@ namespace {
     winrt::fire_and_forget FlutterBluePlusPlugin::WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, int32_t bleOutputProperty) {
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
         auto writeOption = bleOutputProperty == 0 ? GattWriteOption::WriteWithResponse : GattWriteOption::WriteWithoutResponse;
+
+        // check writeable
+        std::string errorString;
+        auto props = (unsigned int)gattCharacteristic.CharacteristicProperties();
+        if (writeOption == GattWriteOption::WriteWithResponse) {
+            if ((props & (unsigned int)GattCharacteristicProperties::WriteWithoutResponse) == 0) {
+                errorString = "The WRITE property is not supported by this BLE characteristic";
+            }
+        } else {
+            if ((props & (unsigned int)GattCharacteristicProperties::Write) == 0) {
+                errorString = "The WRITE_NO_RESPONSE property is not supported by this BLE characteristic";
+            }
+        }
+
+        if (errorString.size() > 0) {
+            std::vector<uint8_t> bytes;
+            method_channel_->InvokeMethod("OnCharacteristicWritten",
+                std::make_unique<EncodableValue>(EncodableMap{
+                    {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                    {"service_uuid", EncodableValue(service)},
+                    {"secondary_service_uuid", EncodableValue()},
+                    {"characteristic_uuid", EncodableValue(characteristic)},
+                    {"value", EncodableValue(to_hexstring(bytes))},
+                    {"success", EncodableValue(0)},
+                    {"error_string", EncodableValue(errorString)},
+                    {"error_code", EncodableValue(438290)}
+                }));
+            co_return;
+        }
+
         auto writeValueStatus = co_await gattCharacteristic.WriteValueAsync(from_bytevc(value), writeOption);
         FBPLog(LDEBUG, L"WriteValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(value)) + L", " + winrt::to_hstring((int32_t)writeValueStatus));
 
