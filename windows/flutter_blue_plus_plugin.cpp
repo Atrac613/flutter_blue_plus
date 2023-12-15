@@ -369,16 +369,14 @@ namespace {
 
             result->Success(EncodableValue(true));
 
-            if (method_channel_) {
-                method_channel_->InvokeMethod("OnReadRssi",
-                    std::make_unique<EncodableValue>(EncodableMap{
-                          {"remote_id", EncodableValue(remoteId)},
-                          {"rssi", EncodableValue(0)},
-                          {"success", EncodableValue(true)},
-                          {"error_string", EncodableValue("success")},
-                          {"error_code", EncodableValue(0)},
-                    }));
-            }
+            method_channel_->InvokeMethod("OnReadRssi",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", EncodableValue(remoteId)},
+                      {"rssi", EncodableValue(0)},
+                      {"success", EncodableValue(true)},
+                      {"error_string", EncodableValue("success")},
+                      {"error_code", EncodableValue(0)},
+                }));
         }
         else if (method_name.compare("discoverServices") == 0) {
             std::string remoteId = std::get<std::string>(*method_call.arguments());
@@ -574,7 +572,7 @@ namespace {
             serviceUuidList.push_back(EncodableValue(to_uuidstr(uuid)));
         }
 
-        if (method_channel_ && hasService) {
+        if (hasService) {
             EncodableList advertisements;
             advertisements.push_back(EncodableMap{
                 {"remote_id", EncodableValue(winrt::to_string(formatBluetoothAddress(args.BluetoothAddress())))},
@@ -600,15 +598,15 @@ namespace {
         if (servicesResult.Status() != GattCommunicationStatus::Success) {
             std::string errorMessage = getGattCommunicationStatusMessage(servicesResult.Status());
             FBPLog(LERROR, L"GetGattServicesAsync error: " + winrt::to_hstring(errorMessage));
-            if (method_channel_) {
-                method_channel_->InvokeMethod("OnConnectionStateChanged",
-                    std::make_unique<EncodableValue>(EncodableMap{
-                          {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
-                          {"connection_state", EncodableValue(0)},
-                          {"disconnect_reason_code", EncodableValue((int32_t)servicesResult.Status())},
-                          {"disconnect_reason_string", EncodableValue(errorMessage)}
-                    }));
-            }
+
+            method_channel_->InvokeMethod("OnConnectionStateChanged",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                      {"connection_state", EncodableValue(0)},
+                      {"disconnect_reason_code", EncodableValue((int32_t)servicesResult.Status())},
+                      {"disconnect_reason_string", EncodableValue(errorMessage)}
+                }));
+
             co_return;
         }
         auto connnectionStatusChangedToken = device.ConnectionStatusChanged({ this, &FlutterBluePlusPlugin::BluetoothLEDevice_ConnectionStatusChanged });
@@ -616,15 +614,13 @@ namespace {
         auto pair = std::make_pair(bluetoothAddress, std::move(deviceAgent));
         connectedDevices.insert(std::move(pair));
 
-        if (method_channel_) {
-            method_channel_->InvokeMethod("OnConnectionStateChanged",
-                std::make_unique<EncodableValue>(EncodableMap{
-                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
-                  {"connection_state", EncodableValue(1)},
-                  {"disconnect_reason_code", EncodableValue()},
-                  {"disconnect_reason_string", EncodableValue()}
-                }));
-        }
+        method_channel_->InvokeMethod("OnConnectionStateChanged",
+            std::make_unique<EncodableValue>(EncodableMap{
+              {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+              {"connection_state", EncodableValue(1)},
+              {"disconnect_reason_code", EncodableValue()},
+              {"disconnect_reason_string", EncodableValue()}
+            }));
     }
 
     void FlutterBluePlusPlugin::BluetoothLEDevice_ConnectionStatusChanged(BluetoothLEDevice sender, IInspectable args) {
@@ -632,15 +628,13 @@ namespace {
         if (sender.ConnectionStatus() == BluetoothConnectionStatus::Disconnected) {
             CleanConnection(sender.BluetoothAddress());
 
-            if (method_channel_) {
-                method_channel_->InvokeMethod("OnConnectionStateChanged",
-                    std::make_unique<EncodableValue>(EncodableMap{
-                          {"remote_id", winrt::to_string(formatBluetoothAddress(sender.BluetoothAddress()))},
-                          {"connection_state", EncodableValue(0)},
-                          {"disconnect_reason_code", EncodableValue()},
-                          {"disconnect_reason_string", EncodableValue()}
-                    }));
-            }
+            method_channel_->InvokeMethod("OnConnectionStateChanged",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(sender.BluetoothAddress()))},
+                      {"connection_state", EncodableValue(0)},
+                      {"disconnect_reason_code", EncodableValue()},
+                      {"disconnect_reason_string", EncodableValue()}
+                }));
         }
     }
 
@@ -653,32 +647,28 @@ namespace {
                 deviceAgent->gattCharacteristics.at(tokenPair.first).ValueChanged(tokenPair.second);
             }
 
-            if (method_channel_) {
-                method_channel_->InvokeMethod("OnConnectionStateChanged",
-                    std::make_unique<EncodableValue>(EncodableMap{
-                          {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
-                          {"connection_state", EncodableValue(0)},
-                          {"disconnect_reason_code", EncodableValue()},
-                          {"disconnect_reason_string", EncodableValue()}
-                    }));
-            }
+            method_channel_->InvokeMethod("OnConnectionStateChanged",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothAddress))},
+                      {"connection_state", EncodableValue(0)},
+                      {"disconnect_reason_code", EncodableValue()},
+                      {"disconnect_reason_string", EncodableValue()}
+                }));
         }
     }
 
     winrt::fire_and_forget FlutterBluePlusPlugin::DiscoverServicesAsync(BluetoothDeviceAgent& bluetoothDeviceAgent) {
         auto serviceResult = co_await bluetoothDeviceAgent.device.GetGattServicesAsync();
         if (serviceResult.Status() != GattCommunicationStatus::Success) {
-            if (method_channel_) {
-                EncodableList services;
-                method_channel_->InvokeMethod("OnDiscoveredServices",
-                    std::make_unique<EncodableValue>(EncodableMap{
-                          {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
-                          {"services", EncodableValue(services)},
-                          {"success", EncodableValue(0)},
-                          {"error_string", EncodableValue("Invalid status")},
-                          {"error_code", EncodableValue(0)}
-                    }));
-            }
+            EncodableList services;
+            method_channel_->InvokeMethod("OnDiscoveredServices",
+                std::make_unique<EncodableValue>(EncodableMap{
+                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                      {"services", EncodableValue(services)},
+                      {"success", EncodableValue(0)},
+                      {"error_string", EncodableValue("Invalid status")},
+                      {"error_code", EncodableValue(0)}
+                }));
             co_return;
         }
 
@@ -744,16 +734,14 @@ namespace {
             services.push_back(service);
         }
 
-        if (method_channel_) {
-            method_channel_->InvokeMethod("OnDiscoveredServices",
-            std::make_unique<EncodableValue>(EncodableMap{
-                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
-                  {"services", EncodableValue(services)},
-                  {"success", EncodableValue(1)},
-                  {"error_string", EncodableValue("success")},
-                  {"error_code", EncodableValue(0)}
-            }));
-        }
+        method_channel_->InvokeMethod("OnDiscoveredServices",
+        std::make_unique<EncodableValue>(EncodableMap{
+              {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+              {"services", EncodableValue(services)},
+              {"success", EncodableValue(1)},
+              {"error_string", EncodableValue("success")},
+              {"error_code", EncodableValue(0)}
+        }));
     }
 
     winrt::fire_and_forget FlutterBluePlusPlugin::SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, int32_t bleInputProperty) {
@@ -766,24 +754,23 @@ namespace {
 
         auto writeDescriptorStatus = co_await gattCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(descriptorValue);
         FBPLog(LDEBUG, L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t) writeDescriptorStatus));
-        if (method_channel_) {
-            std::vector<uint8_t> bytes;
-            bytes.push_back((uint8_t) descriptorValue);
 
-            auto success = writeDescriptorStatus == GattCommunicationStatus::Success;
-            method_channel_->InvokeMethod("OnDescriptorWritten",
-                std::make_unique<EncodableValue>(EncodableMap{
-                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
-                      {"service_uuid", EncodableValue(service)},
-                      {"secondary_service_uuid", EncodableValue()},
-                      {"characteristic_uuid", EncodableValue(characteristic)},
-                      {"descriptor_uuid", EncodableValue("2902")},
-                      {"value", EncodableValue(to_hexstring(bytes))},
-                      {"success", EncodableValue(success ? 1 : 0)},
-                      {"error_string", EncodableValue(success ? "success" : "invalid status")},
-                      {"error_code", EncodableValue(success ? 0 : (int32_t) writeDescriptorStatus)}
-                }));
-        }
+        std::vector<uint8_t> bytes;
+        bytes.push_back((uint8_t) descriptorValue);
+
+        auto success = writeDescriptorStatus == GattCommunicationStatus::Success;
+        method_channel_->InvokeMethod("OnDescriptorWritten",
+            std::make_unique<EncodableValue>(EncodableMap{
+                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                  {"service_uuid", EncodableValue(service)},
+                  {"secondary_service_uuid", EncodableValue()},
+                  {"characteristic_uuid", EncodableValue(characteristic)},
+                  {"descriptor_uuid", EncodableValue("2902")},
+                  {"value", EncodableValue(to_hexstring(bytes))},
+                  {"success", EncodableValue(success ? 1 : 0)},
+                  {"error_string", EncodableValue(success ? "success" : "invalid status")},
+                  {"error_code", EncodableValue(success ? 0 : (int32_t) writeDescriptorStatus)}
+            }));
 
         if (bleInputProperty != 0) {
             bluetoothDeviceAgent.valueChangedTokens[characteristic] = gattCharacteristic.ValueChanged({ this, &FlutterBluePlusPlugin::GattCharacteristic_ValueChanged });
@@ -800,19 +787,17 @@ namespace {
 
         FBPLog(LDEBUG, L"ReadValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(bytes)));
 
-        if (method_channel_) {
-            method_channel_->InvokeMethod("OnCharacteristicReceived",
-                std::make_unique<EncodableValue>(EncodableMap{
-                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
-                      {"service_uuid", EncodableValue(service)},
-                      {"secondary_service_uuid", EncodableValue()},
-                      {"characteristic_uuid", EncodableValue(characteristic)},
-                      {"value", EncodableValue(to_hexstring(bytes))},
-                      {"success", EncodableValue(1)},
-                      {"error_string", EncodableValue("success")},
-                      {"error_code", EncodableValue(0)}
-                }));
-        }
+        method_channel_->InvokeMethod("OnCharacteristicReceived",
+            std::make_unique<EncodableValue>(EncodableMap{
+                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                  {"service_uuid", EncodableValue(service)},
+                  {"secondary_service_uuid", EncodableValue()},
+                  {"characteristic_uuid", EncodableValue(characteristic)},
+                  {"value", EncodableValue(to_hexstring(bytes))},
+                  {"success", EncodableValue(1)},
+                  {"error_string", EncodableValue("success")},
+                  {"error_code", EncodableValue(0)}
+            }));
     }
 
     winrt::fire_and_forget FlutterBluePlusPlugin::WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, int32_t bleOutputProperty) {
@@ -821,19 +806,17 @@ namespace {
         auto writeValueStatus = co_await gattCharacteristic.WriteValueAsync(from_bytevc(value), writeOption);
         FBPLog(LDEBUG, L"WriteValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(value)) + L", " + winrt::to_hstring((int32_t)writeValueStatus));
 
-        if (method_channel_) {
-            method_channel_->InvokeMethod("OnCharacteristicWritten",
-                std::make_unique<EncodableValue>(EncodableMap{
-                      {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
-                      {"service_uuid", EncodableValue(service)},
-                      {"secondary_service_uuid", EncodableValue()},
-                      {"characteristic_uuid", EncodableValue(characteristic)},
-                      {"value", EncodableValue(to_hexstring(value))},
-                      {"success", EncodableValue((int32_t)writeValueStatus == 0 ? 1 : 0)},
-                      {"error_string", EncodableValue((int32_t)writeValueStatus == 0 ? "success" : "Invalid Status")},
-                      {"error_code", EncodableValue((int32_t)writeValueStatus)}
-                }));
-        }
+        method_channel_->InvokeMethod("OnCharacteristicWritten",
+            std::make_unique<EncodableValue>(EncodableMap{
+                  {"remote_id", winrt::to_string(formatBluetoothAddress(bluetoothDeviceAgent.device.BluetoothAddress()))},
+                  {"service_uuid", EncodableValue(service)},
+                  {"secondary_service_uuid", EncodableValue()},
+                  {"characteristic_uuid", EncodableValue(characteristic)},
+                  {"value", EncodableValue(to_hexstring(value))},
+                  {"success", EncodableValue((int32_t)writeValueStatus == 0 ? 1 : 0)},
+                  {"error_string", EncodableValue((int32_t)writeValueStatus == 0 ? "success" : "Invalid Status")},
+                  {"error_code", EncodableValue((int32_t)writeValueStatus)}
+            }));
     }
 
     void FlutterBluePlusPlugin::GattCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args) {
@@ -842,19 +825,17 @@ namespace {
         auto bytes = to_bytevc(args.CharacteristicValue());
         //FBPLog(LDEBUG, L"GattCharacteristic_ValueChanged " + winrt::to_hstring(characteristic_uuid) + L", " + winrt::to_hstring(service_uuid) + L", " + winrt::to_hstring(to_hexstring(bytes))));
 
-        if (method_channel_) {
-            method_channel_->InvokeMethod("OnCharacteristicReceived",
-                std::make_unique<EncodableValue>(EncodableMap{
-                      {"remote_id", winrt::to_string(formatBluetoothAddress(sender.Service().Device().BluetoothAddress()))},
-                      {"service_uuid", EncodableValue(service_uuid)},
-                      {"secondary_service_uuid", EncodableValue()},
-                      {"characteristic_uuid", EncodableValue(characteristic_uuid)},
-                      {"value", EncodableValue(to_hexstring(bytes))},
-                      {"success", EncodableValue(1)},
-                      {"error_string", EncodableValue("success")},
-                      {"error_code", EncodableValue(0)}
-                }));
-        }
+        method_channel_->InvokeMethod("OnCharacteristicReceived",
+            std::make_unique<EncodableValue>(EncodableMap{
+                  {"remote_id", winrt::to_string(formatBluetoothAddress(sender.Service().Device().BluetoothAddress()))},
+                  {"service_uuid", EncodableValue(service_uuid)},
+                  {"secondary_service_uuid", EncodableValue()},
+                  {"characteristic_uuid", EncodableValue(characteristic_uuid)},
+                  {"value", EncodableValue(to_hexstring(bytes))},
+                  {"success", EncodableValue(1)},
+                  {"error_string", EncodableValue("success")},
+                  {"error_code", EncodableValue(0)}
+            }));
     }
 
     void FlutterBluePlusPlugin::FBPLog(LogLevel level, winrt::hstring message) {
