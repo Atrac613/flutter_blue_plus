@@ -707,14 +707,14 @@ namespace {
 
                     auto props = (unsigned int)c.CharacteristicProperties();
                     auto propsMap = EncodableMap{
-                            {"broadcast", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Broadcast) != 0)},
-                            {"read", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Read) != 0)},
-                            {"write_without_response", EncodableValue((props & (unsigned int)GattCharacteristicProperties::WriteWithoutResponse) != 0)},
-                            {"write", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Write) != 0)},
-                            {"notify", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Notify) != 0)},
-                            {"indicate", EncodableValue((props & (unsigned int)GattCharacteristicProperties::Indicate) != 0)},
-                            {"authenticated_signed_writes", EncodableValue((props & (unsigned int)GattCharacteristicProperties::AuthenticatedSignedWrites) != 0)},
-                            {"extended_properties", EncodableValue((props & (unsigned int)GattCharacteristicProperties::ExtendedProperties) != 0)},
+                            {"broadcast", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::Broadcast))},
+                            {"read", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::Read))},
+                            {"write_without_response", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::WriteWithoutResponse))},
+                            {"write", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::Write))},
+                            {"notify", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::Notify))},
+                            {"indicate", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::Indicate))},
+                            {"authenticated_signed_writes", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::AuthenticatedSignedWrites))},
+                            {"extended_properties", EncodableValue((int32_t)(props & (unsigned int)GattCharacteristicProperties::ExtendedProperties))},
                             {"notify_encryption_required", EncodableValue(false)},
                             {"indicate_encryption_required", EncodableValue(false)}
                     };
