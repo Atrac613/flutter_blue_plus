@@ -141,6 +141,15 @@ namespace {
         return ret.str();
     }
 
+    enum LogLevel {
+        LNONE = 0,
+        LERROR = 1,
+        LWARNING = 2,
+        LINFO = 3,
+        LDEBUG = 4,
+        LVERBOSE = 5
+    };
+
     struct BluetoothDeviceAgent {
         BluetoothLEDevice device;
         winrt::event_token connnectionStatusChangedToken;
@@ -206,7 +215,6 @@ namespace {
         FlutterBluePlusPlugin();
 
         virtual ~FlutterBluePlusPlugin();
-
     private:
         winrt::fire_and_forget InitializeAsync();
 
@@ -236,6 +244,9 @@ namespace {
         winrt::fire_and_forget ReadValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic);
         winrt::fire_and_forget WriteValueAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, std::vector<uint8_t> value, int32_t bleOutputProperty);
         void FlutterBluePlusPlugin::GattCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args);
+
+        int32_t logLevel;
+        void FlutterBluePlusPlugin::FBPLog(LogLevel level, winrt::hstring message);
     };
 
     // static
@@ -273,7 +284,8 @@ namespace {
         const flutter::MethodCall<flutter::EncodableValue>& method_call,
         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
         auto method_name = method_call.method_name();
-        OutputDebugString((L"HandleMethodCall " + winrt::to_hstring(method_name) + L"\n").c_str());
+        FBPLog(LDEBUG, L"MethodName: " + winrt::to_hstring(method_name));
+
         if (method_name.compare("flutterHotRestart") == 0) {
             result->Success(EncodableValue(true));
         }
@@ -281,6 +293,9 @@ namespace {
             result->Success(0);
         }
         else if (method_name.compare("setLogLevel") == 0) {
+            logLevel = std::get<int32_t>(*method_call.arguments());
+            FBPLog(LINFO, L"LogLevel: " + winrt::to_hstring(logLevel));
+
             result->Success(EncodableValue(true));
         }
         else if (method_name.compare("getAdapterState") == 0) {
@@ -327,7 +342,7 @@ namespace {
         else if (method_name.compare("connect") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
             std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             // "d9:da:10:8a:32:3a" to "d9da108a323a"
             remoteId = remove_string(remoteId, ":");
@@ -337,7 +352,7 @@ namespace {
         }
         else if (method_name.compare("disconnect") == 0) {
             std::string remoteId = std::get<std::string>(*method_call.arguments());
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             // "d9:da:10:8a:32:3a" to "d9da108a323a"
             remoteId = remove_string(remoteId, ":");
@@ -350,7 +365,7 @@ namespace {
             // https://stackoverflow.com/questions/64096245/how-to-get-rssi-of-a-connected-bluetoothledevice-in-uwp
 
             std::string remoteId = std::get<std::string>(*method_call.arguments());
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             result->Success(EncodableValue(true));
 
@@ -367,7 +382,7 @@ namespace {
         }
         else if (method_name.compare("discoverServices") == 0) {
             std::string remoteId = std::get<std::string>(*method_call.arguments());
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             // "d9:da:10:8a:32:3a" to "d9da108a323a"
             std::string remoteIdString = remove_string(remoteId, ":");
@@ -384,7 +399,7 @@ namespace {
         else if (method_name.compare("setNotifyValue") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
             std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             auto characteristicUuid = std::get<std::string>(args[EncodableValue("characteristic_uuid")]);
             auto serviceUuid = std::get<std::string>(args[EncodableValue("service_uuid")]);
@@ -410,7 +425,7 @@ namespace {
         else if (method_name.compare("readCharacteristic") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
             std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             auto characteristicUuid = std::get<std::string>(args[EncodableValue("characteristic_uuid")]);
             auto serviceUuid = std::get<std::string>(args[EncodableValue("service_uuid")]);
@@ -432,7 +447,7 @@ namespace {
         else if (method_name.compare("writeCharacteristic") == 0) {
             auto args = std::get<EncodableMap>(*method_call.arguments());
             std::string remoteId = std::get<std::string>(args[EncodableValue("remote_id")]);
-            OutputDebugString((L"RemoteId: " + winrt::to_hstring(remoteId)).c_str());
+            FBPLog(LDEBUG, L"RemoteId: " + winrt::to_hstring(remoteId));
 
             auto characteristicUuid = std::get<std::string>(args[EncodableValue("characteristic_uuid")]);
             auto serviceUuid = std::get<std::string>(args[EncodableValue("service_uuid")]);
@@ -485,8 +500,8 @@ namespace {
     winrt::fire_and_forget FlutterBluePlusPlugin::SendScanResultAsync(BluetoothLEAdvertisementReceivedEventArgs args) {
         auto device = co_await BluetoothLEDevice::FromBluetoothAddressAsync(args.BluetoothAddress());
         auto name = device ? device.Name() : args.Advertisement().LocalName();
-        OutputDebugString((L"Received BluetoothAddress:" + winrt::to_hstring(args.BluetoothAddress())
-            + L", Name:" + name + L", LocalName:" + args.Advertisement().LocalName() + L"\n").c_str());
+        FBPLog(LDEBUG, L"Received BluetoothAddress:" + winrt::to_hstring(args.BluetoothAddress())
+            + L", Name:" + name + L", LocalName:" + args.Advertisement().LocalName());
 
         bool hasService = false;
         if (targetServiceUuids.size() > 0) {
@@ -584,7 +599,7 @@ namespace {
         auto servicesResult = co_await device.GetGattServicesAsync();
         if (servicesResult.Status() != GattCommunicationStatus::Success) {
             std::string errorMessage = getGattCommunicationStatusMessage(servicesResult.Status());
-            OutputDebugString((L"GetGattServicesAsync error: " + winrt::to_hstring(errorMessage) + L"\n").c_str());
+            FBPLog(LERROR, L"GetGattServicesAsync error: " + winrt::to_hstring(errorMessage));
             if (method_channel_) {
                 method_channel_->InvokeMethod("OnConnectionStateChanged",
                     std::make_unique<EncodableValue>(EncodableMap{
@@ -613,7 +628,7 @@ namespace {
     }
 
     void FlutterBluePlusPlugin::BluetoothLEDevice_ConnectionStatusChanged(BluetoothLEDevice sender, IInspectable args) {
-        OutputDebugString((L"ConnectionStatusChanged " + winrt::to_hstring((int32_t)sender.ConnectionStatus()) + L"\n").c_str());
+        FBPLog(LDEBUG, L"ConnectionStatusChanged " + winrt::to_hstring((int32_t)sender.ConnectionStatus()));
         if (sender.ConnectionStatus() == BluetoothConnectionStatus::Disconnected) {
             CleanConnection(sender.BluetoothAddress());
 
@@ -742,7 +757,7 @@ namespace {
     }
 
     winrt::fire_and_forget FlutterBluePlusPlugin::SetNotifiableAsync(BluetoothDeviceAgent& bluetoothDeviceAgent, std::string service, std::string characteristic, int32_t bleInputProperty) {
-        OutputDebugString((L"SetNotifiableAsync " + winrt::to_hstring((int32_t) bleInputProperty) + L"\n").c_str());
+        FBPLog(LDEBUG, L"SetNotifiableAsync " + winrt::to_hstring((int32_t) bleInputProperty));
 
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
         auto descriptorValue = bleInputProperty == 1 ? GattClientCharacteristicConfigurationDescriptorValue::Notify
@@ -750,8 +765,7 @@ namespace {
             : GattClientCharacteristicConfigurationDescriptorValue::None;
 
         auto writeDescriptorStatus = co_await gattCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(descriptorValue);
-        OutputDebugString((L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t) writeDescriptorStatus) + L"\n").c_str());
-
+        FBPLog(LDEBUG, L"WriteClientCharacteristicConfigurationDescriptorAsync " + winrt::to_hstring((int32_t) writeDescriptorStatus));
         if (method_channel_) {
             std::vector<uint8_t> bytes;
             bytes.push_back((uint8_t) descriptorValue);
@@ -784,7 +798,7 @@ namespace {
         auto readValueResult = co_await gattCharacteristic.ReadValueAsync();
         auto bytes = to_bytevc(readValueResult.Value());
 
-        OutputDebugString((L"ReadValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
+        FBPLog(LDEBUG, L"ReadValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(bytes)));
 
         if (method_channel_) {
             method_channel_->InvokeMethod("OnCharacteristicReceived",
@@ -805,7 +819,7 @@ namespace {
         auto gattCharacteristic = co_await bluetoothDeviceAgent.GetCharacteristicAsync(service, characteristic);
         auto writeOption = bleOutputProperty == 0 ? GattWriteOption::WriteWithResponse : GattWriteOption::WriteWithoutResponse;
         auto writeValueStatus = co_await gattCharacteristic.WriteValueAsync(from_bytevc(value), writeOption);
-        OutputDebugString((L"WriteValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(value)) + L", " + winrt::to_hstring((int32_t)writeValueStatus) + L"\n").c_str());
+        FBPLog(LDEBUG, L"WriteValueAsync " + winrt::to_hstring(characteristic) + L", " + winrt::to_hstring(to_hexstring(value)) + L", " + winrt::to_hstring((int32_t)writeValueStatus));
 
         if (method_channel_) {
             method_channel_->InvokeMethod("OnCharacteristicWritten",
@@ -826,7 +840,7 @@ namespace {
         auto characteristic_uuid = to_uuidstr(sender.Uuid());
         auto service_uuid = to_uuidstr(sender.Service().Uuid());
         auto bytes = to_bytevc(args.CharacteristicValue());
-        //OutputDebugString((L"GattCharacteristic_ValueChanged " + winrt::to_hstring(characteristic_uuid) + L", " + winrt::to_hstring(service_uuid) + L", " + winrt::to_hstring(to_hexstring(bytes)) + L"\n").c_str());
+        //FBPLog(LDEBUG, L"GattCharacteristic_ValueChanged " + winrt::to_hstring(characteristic_uuid) + L", " + winrt::to_hstring(service_uuid) + L", " + winrt::to_hstring(to_hexstring(bytes))));
 
         if (method_channel_) {
             method_channel_->InvokeMethod("OnCharacteristicReceived",
@@ -840,6 +854,12 @@ namespace {
                       {"error_string", EncodableValue("success")},
                       {"error_code", EncodableValue(0)}
                 }));
+        }
+    }
+
+    void FlutterBluePlusPlugin::FBPLog(LogLevel level, winrt::hstring message) {
+        if (level <= logLevel) {
+            OutputDebugString((L"[FBP-Win] " + message + L"\n").c_str());
         }
     }
 }  // namespace flutter_blue_plus
