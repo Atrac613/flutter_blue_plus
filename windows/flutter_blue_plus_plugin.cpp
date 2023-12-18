@@ -290,7 +290,7 @@ namespace {
             result->Success(EncodableValue(true));
         }
         else if (method_name.compare("connectedCount") == 0) {
-            result->Success(0);
+            result->Success((int32_t)connectedDevices.size());
         }
         else if (method_name.compare("setLogLevel") == 0) {
             logLevel = std::get<int32_t>(*method_call.arguments());
