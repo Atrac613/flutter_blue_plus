@@ -15,7 +15,7 @@ if(NOT NUGET_EXE)
 endif()
 
 exec_program(${NUGET_EXE}
-        ARGS install "Microsoft.Windows.CppWinRT" -Version 2.0.230706.1 -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages)
+        ARGS install "Microsoft.Windows.CppWinRT" -Version 2.0.240111.5 -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages)
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
