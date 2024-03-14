@@ -14,8 +14,13 @@ if(NOT NUGET_EXE)
     message(FATAL_ERROR "Please install this executable, and run CMake again.")
 endif()
 
-exec_program(${NUGET_EXE}
-        ARGS install "Microsoft.Windows.CppWinRT" -Version 2.0.240111.5 -ExcludeVersion -OutputDirectory ${CMAKE_BINARY_DIR}/packages)
+execute_process(COMMAND
+        ${NUGET_EXE} install Microsoft.Windows.CppWinRT -Version 2.0.240111.5 -ExcludeVersion -OutputDirectory packages
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        RESULT_VARIABLE ret)
+if (NOT ret EQUAL 0)
+    message(FATAL_ERROR "Failed to install nuget package Microsoft.Windows.CppWinRT.")
+endif()
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
