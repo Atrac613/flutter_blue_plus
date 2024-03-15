@@ -277,7 +277,10 @@ namespace {
 
     winrt::fire_and_forget FlutterBluePlusPlugin::InitializeAsync() {
         auto bluetoothAdapter = co_await BluetoothAdapter::GetDefaultAsync();
-        bluetoothRadio = co_await bluetoothAdapter.GetRadioAsync();
+
+        if (bluetoothAdapter != nullptr) {
+            bluetoothRadio = co_await bluetoothAdapter.GetRadioAsync();
+        }
     }
 
     void FlutterBluePlusPlugin::HandleMethodCall(
